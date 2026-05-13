@@ -1,0 +1,6 @@
+name = "React Router"
+roles = ["frontend", "backend"]
+webhooks_path = "/webhooks/app/uninstalled"
+[commands]
+predev = "yarn prisma generate"
+dev = "yarn prisma migrate deploy && yarn react-router dev"

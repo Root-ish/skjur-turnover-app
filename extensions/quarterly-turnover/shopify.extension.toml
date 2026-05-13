@@ -1,0 +1,9 @@
+api_version = "2026-07"
+uid = "46ac2d08-97aa-bd6a-6967-5f945e4e245d8b29cc75"
+
+[[extensions]]
+name = "Genereer Kwartaaloverzicht"
+handle = "quarterly-turnover"
+type = "flow_action"
+description = "Haalt de kwartaalomzet op van Shopify en Bol.com, genereert een CSV en stuurt dit naar Make."
+runtime_url = "https://dolphin-app-t2d4c.ondigitalocean.app/api/flow/create/order"

@@ -1,0 +1,3 @@
+"Invoice No","Date","Client Nr.","Client name","Distribution channel","Article Nr.","Article name","Sales quantity","Free goods quantity","Total quantity","Gross price currency","Currency","Exchange rate","Gross price","VAT","Total gross I without VAT","Total gross I with VAT","Sales deduction for free goods","Discount","Gross II without VAT","Cash discount","Net","Invoice reffering number"
+"Credit Note 4031626712844-A000DPT8NF","15-1-2026","12345","Skjur","Bol.com","4031626712844","","1","0","1","0","EUR","1","0","21","0","","0","0","-1","0","-0.83","A000DPT8NF"
+"Credit Note 4031626712844-A000DTH626","14-1-2026","12345","Skjur","Bol.com","4031626712844","","1","0","1","0","EUR","1","0","21","0","","0","0","-1","0","-0.83","A000DTH626"
