@@ -2,7 +2,7 @@
 
 client_id = "c871585034dd706b2453327bd5d1d270"
 name = "skjur-turnover"
-application_url = "https://example.com"
+application_url = "https://root-agency.com"
 embedded = true
 
 [build]
@@ -24,7 +24,7 @@ api_version = "2026-07"
 scopes = "write_products,write_metaobjects,write_metaobject_definitions,read_orders,read_analytics,read_reports"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://root-agency.com/api/auth" ]
 
 [product.metafields.app.demo_info]
 type = "single_line_text_field"

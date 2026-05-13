@@ -71,24 +71,29 @@ export async function fetchBolOrders() {
   const orderIds = [];
   let page = 1;
 
+  // API ondersteunt max 3 maanden geschiedenis
+  const threeMonthsAgo = new Date();
+  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+  const latestChangeDate = (start > threeMonthsAgo ? start : threeMonthsAgo)
+    .toISOString()
+    .split('T')[0];
+
   while (true) {
     const data = await bolGet('/orders', {
       'fulfilment-method': 'ALL',
-      status: 'SHIPPED',
+      status: 'ALL',
+      // 'latest-change-date': latestChangeDate,
       page,
     });
 
     const pageOrders = data.orders ?? [];
     if (pageOrders.length === 0) break;
 
-    let reachedBeforeStart = false;
     for (const order of pageOrders) {
       const placed = new Date(order.orderPlacedDateTime);
-      if (placed < start) { reachedBeforeStart = true; break; }
-      if (placed <= end) orderIds.push(order.orderId);
+      if (placed >= start && placed <= end) orderIds.push(order.orderId);
     }
 
-    if (reachedBeforeStart) break;
     page++;
   }
 
