@@ -80,7 +80,7 @@ export async function fetchBolOrders() {
 
   while (true) {
     const data = await bolGet('/orders', {
-      'fulfilment-method': 'ALL',
+      'fulfilment-method': 'FBR',
       status: 'ALL',
       // 'latest-change-date': latestChangeDate,
       page,
