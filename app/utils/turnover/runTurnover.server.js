@@ -5,9 +5,23 @@ import { generateCsv, saveCsv, sendCsvToWebhook } from './csvGenerator.js';
 
 const PAGE_SIZE = 1;
 
-// ShopifyQL query exact zoals gespecificeerd in turnover.md
-// Paginatie via LIMIT/OFFSET in de query string — 'after' argument wordt niet ondersteund
-const BASE_SHOPIFY_QUERY = `FROM sales SHOW gross_sales, product_variant_sku, product_title, customer_id, quantity_ordered, net_sales, line_item_discounts, product_variant_price, order_level_discounts, day, discount_type, discount_value, gross_returns, quantity_returned WHERE product_title IS NOT NULL GROUP BY order_name, customer_id, hour, product_variant_sku, product_title, discount_type, discount_value, product_variant_price, day, return_reason DURING today ORDER BY order_name ASC LIMIT ${PAGE_SIZE}`;
+const SHOPIFY_NAMED_PERIODS = new Set([
+  'last_quarter', 'this_quarter', 'last_month', 'this_month', 'last_year', 'this_year',
+  'last_week', 'this_week', 'yesterday', 'today',
+]);
+
+function buildBaseShopifyQuery(period, startDate, endDate) {
+  const base = `FROM sales SHOW gross_sales, product_variant_sku, product_title, customer_id, quantity_ordered, net_sales, line_item_discounts, product_variant_price, order_level_discounts, day, discount_type, discount_value, gross_returns, quantity_returned WHERE product_title IS NOT NULL GROUP BY order_name, customer_id, hour, product_variant_sku, product_title, discount_type, discount_value, product_variant_price, day, return_reason`;
+  const suffix = `ORDER BY order_name ASC LIMIT ${PAGE_SIZE}`;
+
+  if (period && period !== 'custom' && SHOPIFY_NAMED_PERIODS.has(period)) {
+    return `${base} DURING ${period} ${suffix}`;
+  }
+  if (startDate && endDate) {
+    return `${base} SINCE ${startDate} UNTIL ${endDate} ${suffix}`;
+  }
+  return `${base} DURING last_quarter ${suffix}`;
+}
 
 const GQL_QUERY = `#graphql
   query getQuarterlyTurnover($shopQuery: String!) {
@@ -20,8 +34,10 @@ const GQL_QUERY = `#graphql
   }
 `;
 
-async function fetchShopifyRowsViaAdmin(admin) {
-  console.log('[shopify] Kwartaaldata ophalen via ShopifyQL...');
+async function fetchShopifyRowsViaAdmin(admin, period, startDate, endDate) {
+  const rangeDesc = (period && period !== 'custom') ? `DURING ${period}` : `SINCE ${startDate} UNTIL ${endDate}`;
+  console.log(`[shopify] Data ophalen via ShopifyQL (${rangeDesc})...`);
+  const BASE_SHOPIFY_QUERY = buildBaseShopifyQuery(period, startDate, endDate);
 
   let allRows = [];
   let columns = null;
@@ -97,17 +113,16 @@ const PREVIEW_COLUMNS = [
   { key: 'net',                 label: 'Net' },
 ];
 
-/**
- * @param {object} admin - Shopify admin sessie
- * @param {{ includeShopify: boolean, includeBol: boolean }} options
- */
-export async function runTurnover(admin, { includeShopify = true, includeBol = true } = {}) {
-  console.log(`[turnover] Start — Shopify: ${includeShopify}, Bol.com: ${includeBol}`);
+export async function runTurnover(admin, { includeShopify = true, includeBol = true, period, startDate, endDate } = {}) {
+  const rangeDesc = (period && period !== 'custom') ? `DURING ${period}` : `SINCE ${startDate} UNTIL ${endDate}`;
+  console.log(`[turnover] Start — Shopify: ${includeShopify}, Bol.com: ${includeBol}, periode: ${rangeDesc}`);
+
+  const bolDateRange = (startDate && endDate) ? { startDate, endDate } : null;
 
   const [shopifyRawRows, bolOrders, bolReturns] = await Promise.all([
-    includeShopify ? fetchShopifyRowsViaAdmin(admin) : Promise.resolve([]),
-    includeBol ? fetchBolOrders() : Promise.resolve([]),
-    includeBol ? fetchBolReturns() : Promise.resolve([]),
+    includeShopify ? fetchShopifyRowsViaAdmin(admin, period, startDate, endDate) : Promise.resolve([]),
+    includeBol ? fetchBolOrders(bolDateRange) : Promise.resolve([]),
+    includeBol ? fetchBolReturns(bolDateRange) : Promise.resolve([]),
   ]);
 
   const bolRawRows = includeBol ? [

@@ -36,17 +36,27 @@ async function getAccessToken() {
 async function bolGet(path, params = {}) {
   const token = await getAccessToken();
   const url = new URL(`${API_BASE}${path}`);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
+
+  const headers = new Headers();
+  headers.append('Accept', ACCEPT_HEADER);
+  headers.append('Authorization', `Bearer ${token}`);
+
+  console.log('[bol] GET', url.toString());
+  console.log('[bol] headers', Object.fromEntries(headers.entries()));
 
   const res = await fetch(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: ACCEPT_HEADER,
-    },
+    method: 'GET',
+    headers,
+    redirect: 'follow',
   });
 
+  console.log('[bol] response status', res.status);
+  const body = await res.text();
+  console.log('[bol] response body', body);
+
   if (!res.ok) throw new Error(`Bol.com ${path} fout: ${res.status}`);
-  return res.json();
+  return JSON.parse(body);
 }
 
 function lastQuarterRange() {
@@ -61,26 +71,36 @@ function lastQuarterRange() {
   return { start, end };
 }
 
+function resolveDateRange(dateRange) {
+  if (dateRange?.startDate && dateRange?.endDate) {
+    const start = new Date(dateRange.startDate + 'T00:00:00.000Z');
+    const end = new Date(dateRange.endDate + 'T23:59:59.999Z');
+    console.log(`[bol] aangepast bereik: ${start.toISOString()} — ${end.toISOString()}`);
+    return { start, end };
+  }
+  return lastQuarterRange();
+}
+
 // Orders list geeft geen prijs terug — detail ophalen per order
 async function fetchOrderDetail(orderId) {
   return bolGet(`/orders/${orderId}`);
 }
 
-export async function fetchBolOrders() {
-  const { start, end } = lastQuarterRange();
-  const orderIds = [];
-  let page = 1;
+export async function fetchBolOrders(dateRange = null) {
+  const { start, end } = resolveDateRange(dateRange);
 
-  // API ondersteunt max 3 maanden geschiedenis
+  // API max 3 maanden terug
   const threeMonthsAgo = new Date();
   threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-  const latestChangeDate = (start > threeMonthsAgo ? start : threeMonthsAgo)
-    .toISOString()
-    .split('T')[0];
+  threeMonthsAgo.setDate(threeMonthsAgo.getDate() + 1);
+  const latestChangeDate = threeMonthsAgo.toISOString().split('T')[0];
+
+  const orderIds = new Set();
+  let page = 1;
 
   while (true) {
     const data = await bolGet('/orders', {
-      'fulfilment-method': 'FBR',
+      'fulfilment-method': 'ALL',
       status: 'ALL',
       // 'latest-change-date': latestChangeDate,
       page,
@@ -89,21 +109,30 @@ export async function fetchBolOrders() {
     const pageOrders = data.orders ?? [];
     if (pageOrders.length === 0) break;
 
-    for (const order of pageOrders) {
-      const placed = new Date(order.orderPlacedDateTime);
-      if (placed >= start && placed <= end) orderIds.push(order.orderId);
-    }
+    // orderPlacedDateTime zit niet in de list-response, dus alle ids verzamelen
+    for (const order of pageOrders) orderIds.add(order.orderId);
 
     page++;
   }
 
-  // Detail ophalen voor prijs (unitPrice zit alleen in order detail)
-  const details = await Promise.all(orderIds.map(fetchOrderDetail));
-  return details;
+  // Details ophalen in batches van 5 om 429 te vermijden
+  const ids = [...orderIds];
+  const allDetails = [];
+  for (let i = 0; i < ids.length; i += 5) {
+    const batch = ids.slice(i, i + 5);
+    const results = await Promise.all(batch.map(fetchOrderDetail));
+    allDetails.push(...results);
+    if (i + 5 < ids.length) await new Promise(r => setTimeout(r, 500));
+  }
+
+  return allDetails.filter(detail => {
+    const placed = new Date(detail.orderPlacedDateTime);
+    return placed >= start && placed <= end;
+  });
 }
 
-export async function fetchBolReturns() {
-  const { start, end } = lastQuarterRange();
+export async function fetchBolReturns(dateRange = null) {
+  const { start, end } = resolveDateRange(dateRange);
   const returns = [];
 
   for (const handled of [false, true]) {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useFetcher } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -16,13 +16,16 @@ export const action = async ({ request }) => {
 
   const includeShopify = form.get("includeShopify") === "true";
   const includeBol = form.get("includeBol") === "true";
+  const period = form.get("period");
+  const startDate = form.get("startDate");
+  const endDate = form.get("endDate");
 
   if (!includeShopify && !includeBol) {
     return { success: false, error: "Selecteer minimaal één bron." };
   }
 
   try {
-    const result = await runTurnover(admin, { includeShopify, includeBol });
+    const result = await runTurnover(admin, { includeShopify, includeBol, period, startDate, endDate });
     return { success: true, ...result };
   } catch (err) {
     console.error('[turnover] Fout:', err.message);
@@ -30,12 +33,53 @@ export const action = async ({ request }) => {
   }
 };
 
-function getPreviousQuarterLabel() {
+const PRESETS = [
+  { value: 'last_quarter', label: 'Vorig kwartaal' },
+  { value: 'this_quarter', label: 'Dit kwartaal' },
+  { value: 'last_month',   label: 'Vorige maand' },
+  { value: 'this_month',   label: 'Deze maand' },
+  { value: 'last_year',    label: 'Vorig jaar' },
+  { value: 'custom',       label: 'Aangepast' },
+];
+
+function formatDate(d) {
+  return d.toISOString().split('T')[0];
+}
+
+function getDateRangeForPreset(preset) {
   const now = new Date();
-  const q = Math.floor(now.getMonth() / 3);
-  const prevQ = q === 0 ? 4 : q;
-  const year = q === 0 ? now.getFullYear() - 1 : now.getFullYear();
-  return `Q${prevQ} ${year}`;
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const currentQ = Math.floor(month / 3);
+
+  switch (preset) {
+    case 'last_quarter': {
+      const q = currentQ === 0 ? 3 : currentQ - 1;
+      const y = currentQ === 0 ? year - 1 : year;
+      const sm = q * 3;
+      return { startDate: formatDate(new Date(y, sm, 1)), endDate: formatDate(new Date(y, sm + 3, 0)) };
+    }
+    case 'this_quarter': {
+      const sm = currentQ * 3;
+      return { startDate: formatDate(new Date(year, sm, 1)), endDate: formatDate(new Date(year, sm + 3, 0)) };
+    }
+    case 'last_month': {
+      const pm = month === 0 ? 11 : month - 1;
+      const py = month === 0 ? year - 1 : year;
+      return { startDate: formatDate(new Date(py, pm, 1)), endDate: formatDate(new Date(py, pm + 1, 0)) };
+    }
+    case 'this_month':
+      return { startDate: formatDate(new Date(year, month, 1)), endDate: formatDate(new Date(year, month + 1, 0)) };
+    case 'last_year':
+      return { startDate: `${year - 1}-01-01`, endDate: `${year - 1}-12-31` };
+    default:
+      return getDateRangeForPreset('last_quarter');
+  }
+}
+
+function formatDateRangeLabel(startDate, endDate) {
+  const fmt = (s) => new Date(s + 'T12:00:00').toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' });
+  return `${fmt(startDate)} – ${fmt(endDate)}`;
 }
 
 function getNextRunDate() {
@@ -76,6 +120,31 @@ export default function Index() {
 
   const [includeShopify, setIncludeShopify] = useState(true);
   const [includeBol, setIncludeBol] = useState(true);
+  const [preset, setPreset] = useState('last_quarter');
+  const [dateRange, setDateRange] = useState(() => getDateRangeForPreset('last_quarter'));
+  const datePickerRef = useRef(null);
+
+  useEffect(() => {
+    const el = datePickerRef.current;
+    if (!el) return;
+    const handler = (e) => {
+      const val = e.target.value || '';
+      const [start, end] = val.split('--');
+      if (start && end) {
+        setDateRange({ startDate: start, endDate: end });
+        setPreset('custom');
+      }
+    };
+    el.addEventListener('change', handler);
+    return () => el.removeEventListener('change', handler);
+  }, [preset]);
+
+  const handlePresetSelect = (value) => {
+    setPreset(value);
+    if (value !== 'custom') {
+      setDateRange(getDateRangeForPreset(value));
+    }
+  };
 
   useEffect(() => {
     if (data?.success === true) {
@@ -87,19 +156,49 @@ export default function Index() {
 
   const triggerTurnover = () => {
     fetcher.submit(
-      { includeShopify: String(includeShopify), includeBol: String(includeBol) },
+      {
+        includeShopify: String(includeShopify),
+        includeBol: String(includeBol),
+        period: preset === 'custom' ? 'custom' : preset,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+      },
       { method: "POST" }
     );
   };
 
   return (
     <s-page heading="Kwartaaloverzicht">
+      <s-section heading="Periode">
+        <s-stack direction="block" gap="base">
+          <s-stack direction="inline" gap="tight">
+            {PRESETS.map(({ value, label }) => (
+              <s-button
+                key={value}
+                variant={preset === value ? 'primary' : 'secondary'}
+                onClick={() => handlePresetSelect(value)}
+              >
+                {label}
+              </s-button>
+            ))}
+          </s-stack>
+          {preset === 'custom' && (
+            <s-date-picker
+              ref={datePickerRef}
+              type="range"
+              value={`${dateRange.startDate}--${dateRange.endDate}`}
+            />
+          )}
+          <s-paragraph>
+            <s-text color="subdued">
+              {formatDateRangeLabel(dateRange.startDate, dateRange.endDate)}
+            </s-text>
+          </s-paragraph>
+        </s-stack>
+      </s-section>
+
       <s-section heading="Bronnen">
         <s-stack direction="block" gap="base">
-          <s-paragraph>
-            Selecteer welke bronnen meegenomen worden in de CSV voor{" "}
-            <s-text emphasis="bold">{getPreviousQuarterLabel()}</s-text>.
-          </s-paragraph>
           <s-stack direction="inline" gap="base">
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
               <input
